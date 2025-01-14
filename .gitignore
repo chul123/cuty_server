@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.py[cod]
+*$py.class
+
+# 환경 설정
+.env
+.env.local
+.env.prod
+.env.*
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# 로그 파일
+*.log
+
+# 데이터베이스
+*.sqlite3
+*.db
+
+
+# 배포 관련
+.aws/
+.serverless/
+zappa_settings.json
+
+# 캐시
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Alembic 관련
+migrations/versions/__pycache__/
+migrations/__pycache__/
+
