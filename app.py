@@ -1,13 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_migrate import Migrate
-from models import db, School, College, Department, User, Post, PostComment, PostLike, PostView, Country
+from models import db, School, College, Department, User, Post, PostComment, PostLike, PostView, Country, Nickname
 from config import config
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 import jwt
 from datetime import datetime, timedelta
 from functools import wraps
-from sqlalchemy import func, select, case, distinct, and_, or_
+from sqlalchemy import func, case, distinct, and_, or_
+import random
 
 def create_app(config_name='local'):
     app = Flask(__name__)
@@ -27,8 +28,7 @@ def get_country_data(country):
         'id': country.id,
         'name': country.name,
         'code': country.code,
-        'created_at': country.created_at.isoformat(),
-        'updated_at': country.updated_at.isoformat()
+
     }
 
 
@@ -36,24 +36,21 @@ def get_school_data(school):
     return {
         'id': school.id,
         'name': school.name,
-        'created_at': school.created_at.isoformat(),
-        'updated_at': school.updated_at.isoformat()
+    
     }
 
 def get_college_data(college):
     return {
         'id': college.id,
         'name': college.name,
-        'created_at': college.created_at.isoformat(),
-        'updated_at': college.updated_at.isoformat()
+
     }
 
 def get_department_data(department):
     return {
         'id': department.id,
         'name': department.name,
-        'created_at': department.created_at.isoformat(),
-        'updated_at': department.updated_at.isoformat()
+
     }
 
 def get_post_data(post, view_count, comment_count, like_count, dislike_count):
@@ -62,10 +59,7 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
         'title': post.title,
         'content': post.content,
         'category': post.category,
-        'author': {
-            'id': post.author.id,
-            'nickname': post.author.nickname
-        },
+        'author': get_user_data(post.author),
         'school': {
             'id': post.school.id,
             'name': post.school.name
@@ -101,7 +95,77 @@ def get_comment_data(comment, reply_count):
         'updated_at': comment.updated_at.isoformat()
     }
 
+def get_user_data(user):
+    if user.is_deleted:
+        return {
+            'id': user.id,
+            'email': 'deleted@mail.com',
+            'name': 'deleted',
+            'country': None,
+            'school': None,
+            'college': None,
+            'department': None,
+            'created_at': None,
+            'updated_at': None,
+            'deleted_at': user.deleted_at.isoformat() if user.deleted_at else None
+        }
+    
+    return {
+        'id': user.id,
+        'email': user.email,
+        'name': user.name,
+        'country': {
+            'id': user.country.id,
+            'name': user.country.name,
+            'code': user.country.code
+        },
+        'school': {
+            'id': user.school.id,
+            'name': user.school.name
+        },
+        'college': {
+            'id': user.college.id,
+            'name': user.college.name
+        },
+        'department': {
+            'id': user.department.id,
+            'name': user.department.name
+        },
+        'created_at': user.created_at.isoformat(),
+        'updated_at': user.updated_at.isoformat(),
+        'deleted_at': user.deleted_at.isoformat() if user.deleted_at else None
+    }
 
+def generate_random_nickname():
+    """랜덤 닉네임을 생성합니다."""
+    # 모든 닉네임 템플릿을 가져옵니다
+    nicknames = Nickname.query.all()
+    if not nicknames:
+        return None
+    
+    # 랜덤하게 하나를 선택합니다
+    base_nickname = random.choice(nicknames).nickname
+    
+    # 1000부터 9999 사이의 랜덤 숫자를 생성합니다
+    random_number = random.randint(1000, 9999)
+    
+    # 기본 닉네임과 랜덤 숫자를 조합합니다
+    return f"{base_nickname}{random_number}"
+
+def is_nickname_available(nickname):
+    """닉네임 사용 가능 여부를 확인합니다."""
+    return User.query.filter_by(nickname=nickname).first() is None
+
+def create_unique_nickname():
+    """유니크한 닉네임을 생성합니다."""
+    max_attempts = 10  # 최대 시도 횟수
+    
+    for _ in range(max_attempts):
+        nickname = generate_random_nickname()
+        if nickname and is_nickname_available(nickname):
+            return nickname
+            
+    return None  # 모든 시도 실패
 
 # JWT 토큰 검증을 위한 데코레이터
 def token_required(f):
@@ -121,6 +185,14 @@ def token_required(f):
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
             current_user = User.query.get(data['user_id'])
+            
+            # 유저가 존재하지 않거나 삭제된 경우 확인
+            if not current_user:
+                return jsonify({'error': '존재하지 않는 사용자입니다'}), 401
+            
+            if current_user.is_deleted:
+                return jsonify({'error': '삭제된 사용자입니다'}), 401
+                
         except:
             return jsonify({'error': '유효하지 않은 토큰입니다'}), 401
 
@@ -355,7 +427,7 @@ def register():
                 'user_id': new_user.id,
                 'email': new_user.email,
                 'nickname': new_user.nickname,
-                'exp': datetime.utcnow() + timedelta(days=1)
+                'exp': datetime.utcnow() + timedelta(days=30)
             },
             app.config['SECRET_KEY'],
             algorithm='HS256'
@@ -390,7 +462,7 @@ def login():
         {
             'user_id': user.id,
             'email': user.email,
-            'exp': datetime.utcnow() + timedelta(days=1)
+            'exp': datetime.utcnow() + timedelta(days=30)
         },
         app.config['SECRET_KEY'],
         algorithm='HS256'
@@ -408,24 +480,70 @@ def get_posts():
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 10, type=int)
     
-    # 카테고리 필터 파라미터
+    # 필터링 파라미터
     category = request.args.get('category')
+    search = request.args.get('search', '')
+    school_id = request.args.get('school_id', type=int)
+    college_id = request.args.get('college_id', type=int)
+    department_id = request.args.get('department_id', type=int)
+    
+    # 현재 사용자의 학교 정보 가져오기
+    current_user_school_id = None
+    if 'Authorization' in request.headers:
+        try:
+            token = request.headers['Authorization'].split(" ")[1]
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            user = User.query.get(data['user_id'])
+            if user:
+                current_user_school_id = user.school_id
+        except:
+            pass
+    
+    # 학교 ID가 지정되지 않았고 로그인하지 않은 경우 첫 번째 학교 선택
+    if not school_id and not current_user_school_id:
+        default_school = School.query.first()
+        if default_school:
+            school_id = default_school.id
     
     # 게시물 쿼리 생성
     posts_query = db.session.query(
         Post,
         func.count(distinct(PostView.id)).label('view_count'),
-        func.count(distinct(PostComment.id)).label('comment_count'),
+        func.count(distinct(case(
+            (PostComment.deleted_at == None, PostComment.id)
+        ))).label('comment_count'),
         func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
         func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
     ).outerjoin(PostView, Post.id == PostView.post_id)\
     .outerjoin(PostComment, Post.id == PostComment.post_id)\
     .outerjoin(PostLike, Post.id == PostLike.post_id)\
-    .filter(Post.is_deleted == False)
+    .filter(Post.deleted_at == None)
+    
+    # 학교 필터 적용
+    if school_id:
+        posts_query = posts_query.filter(Post.school_id == school_id)
+    elif current_user_school_id:
+        posts_query = posts_query.filter(Post.school_id == current_user_school_id)
+    
+    # 단과대학 필터 적용
+    if college_id:
+        posts_query = posts_query.filter(Post.college_id == college_id)
+    
+    # 학과 필터 적용
+    if department_id:
+        posts_query = posts_query.filter(Post.department_id == department_id)
     
     # 카테고리 필터 적용
     if category:
         posts_query = posts_query.filter(Post.category == category)
+    
+    # 검색어 필터 적용
+    if search:
+        search_filter = or_(
+            Post.title.ilike(f'%{search}%'),
+            Post.content.ilike(f'%{search}%'),
+        )
+        posts_query = posts_query.filter(search_filter)
     
     # 정렬 및 그룹화
     posts_query = posts_query.group_by(Post.id)\
@@ -433,6 +551,22 @@ def get_posts():
     
     # 페이지네이션 적용
     pagination = posts_query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    # 현재 적용된 필터의 학교/단과대/학과 정보 가져오기
+    current_school = None
+    current_college = None
+    current_department = None
+    
+    if school_id:
+        current_school = School.query.get(school_id)
+    elif current_user_school_id:
+        current_school = School.query.get(current_user_school_id)
+        
+    if college_id and current_school:
+        current_college = College.query.filter_by(id=college_id, school_id=current_school.id).first()
+        
+    if department_id and current_college:
+        current_department = Department.query.filter_by(id=department_id, college_id=current_college.id).first()
     
     # 결과 포맷팅
     posts = [
@@ -446,7 +580,13 @@ def get_posts():
         'pages': pagination.pages,
         'current_page': page,
         'per_page': per_page,
-        'category': category
+        'current_filters': {
+            'school': get_school_data(current_school) if current_school else None,
+            'college': get_college_data(current_college) if current_college else None,
+            'department': get_department_data(current_department) if current_department else None,
+            'category': category,
+            'search': search
+        }
     }), 200
 
 @app.route('/api/posts/<int:post_id>', methods=['GET'])
@@ -455,7 +595,9 @@ def get_post(post_id):
     post_query = db.session.query(
         Post,
         func.count(distinct(PostView.id)).label('view_count'),
-        func.count(distinct(PostComment.id)).label('comment_count'),
+        func.count(distinct(case(
+            (PostComment.deleted_at == None, PostComment.id)
+        ))).label('comment_count'),
         func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
         func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
     ).outerjoin(PostView, Post.id == PostView.post_id)\
@@ -470,7 +612,7 @@ def get_post(post_id):
 
     post, view_count, comment_count, like_count, dislike_count = post_query
     
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '삭제된 게시글입니다'}), 404
 
     # 조회수 증가 로직
@@ -519,12 +661,18 @@ def create_post(current_user):
         if field not in data:
             return jsonify({'error': f'{field}는 필수 항목입니다'}), 400
     
+    # 랜덤 닉네임 생성
+    anonymous_nickname = create_unique_nickname()
+    if not anonymous_nickname:
+        return jsonify({'error': '닉네임을 생성할 수 없습니다'}), 500
+    
     # 새 게시글 생성
     new_post = Post(
         title=data['title'],
         content=data['content'],
         category=data['category'],
         user_id=current_user.id,
+        nickname=anonymous_nickname,  # anonymous_nickname에서 변경
         school_id=current_user.school_id,
         college_id=current_user.college_id,
         department_id=current_user.department_id
@@ -548,7 +696,7 @@ def update_post(current_user, post_id):
     if not post:
         return jsonify({'error': '존재하지 않는 게시글입니다'}), 404
         
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '삭제된 게시글입니다'}), 404
         
     if post.user_id != current_user.id:
@@ -568,11 +716,13 @@ def update_post(current_user, post_id):
         post_data = db.session.query(
             Post,
             func.count(distinct(PostView.id)).label('view_count'),
-            func.count(distinct(PostComment.id)).label('comment_count'),
+            func.count(distinct(case(
+                (PostComment.deleted_at == None, PostComment.id)
+            ))).label('comment_count'),
             func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
             func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
         ).outerjoin(PostView, Post.id == PostView.post_id)\
-        .outerjoin(PostComment, and_(Post.id == PostComment.post_id, PostComment.is_deleted == False))\
+        .outerjoin(PostComment, and_(Post.id == PostComment.post_id, PostComment.deleted_at == None))\
         .outerjoin(PostLike, Post.id == PostLike.post_id)\
         .filter(Post.id == post_id)\
         .group_by(Post.id)\
@@ -593,14 +743,14 @@ def delete_post(current_user, post_id):
     if not post:
         return jsonify({'error': '존재하지 않는 게시글입니다'}), 404
         
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '이미 삭제된 게시글입니다'}), 404
         
     if post.user_id != current_user.id:
         return jsonify({'error': '게시글을 삭제할 권한이 없습니다'}), 403
     
     try:
-        post.is_deleted = True
+        post.deleted_at = datetime.utcnow()
         db.session.commit()
         return '', 204
         
@@ -621,7 +771,7 @@ def get_post_comments(post_id):
     if not post:
         return jsonify({'error': '존재하지 않는 게시글입니다'}), 404
         
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '삭제된 게시글입니다'}), 404
     
     # 최상위 댓글과 대댓글 수 쿼리
@@ -660,7 +810,7 @@ def create_comment(current_user, post_id):
     if not post:
         return jsonify({'error': '존재하지 않는 게시글입니다'}), 404
         
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '삭제된 게시글입니다'}), 404
     
     data = request.get_json()
@@ -680,12 +830,18 @@ def create_comment(current_user, post_id):
         if parent_comment.parent_id is not None:
             return jsonify({'error': '대댓글에는 답글을 달 수 없습니다'}), 400
     
+    # 랜덤 닉네임 생성
+    anonymous_nickname = create_unique_nickname()
+    if not anonymous_nickname:
+        return jsonify({'error': '닉네임을 생성할 수 없습니다'}), 500
+    
     # 새 댓글 생성
     new_comment = PostComment(
         content=data['content'],
         user_id=current_user.id,
         post_id=post_id,
-        parent_id=parent_id
+        parent_id=parent_id,
+        nickname=anonymous_nickname  # anonymous_nickname에서 변경
     )
     
     try:
@@ -720,7 +876,7 @@ def update_comment(current_user, post_id, comment_id):
         return jsonify({'error': '댓글을 수정할 권한이 없습니다'}), 403
         
     # 삭제된 댓글 확인
-    if comment.is_deleted:
+    if comment.deleted_at:
         return jsonify({'error': '삭제된 댓글입니다'}), 400
     
     data = request.get_json()
@@ -747,25 +903,22 @@ def update_comment(current_user, post_id, comment_id):
 @app.route('/api/posts/<int:post_id>/comments/<int:comment_id>', methods=['DELETE'])
 @token_required
 def delete_comment(current_user, post_id, comment_id):
-    # 댓글 존재 여부 확인
     comment = PostComment.query.get(comment_id)
+    
     if not comment:
         return jsonify({'error': '존재하지 않는 댓글입니다'}), 404
         
-    # 게시글 일치 여부 확인
     if comment.post_id != post_id:
         return jsonify({'error': '해당 게시글의 댓글이 아닙니다'}), 400
         
-    # 권한 확인
     if comment.user_id != current_user.id:
         return jsonify({'error': '댓글을 삭제할 권한이 없습니다'}), 403
         
-    # 이미 삭제된 댓글 확인
-    if comment.is_deleted:
+    if comment.deleted_at:
         return jsonify({'error': '이미 삭제된 댓글입니다'}), 400
     
     try:
-        comment.is_deleted = True
+        comment.deleted_at = datetime.utcnow()
         db.session.commit()
         return '', 204
         
@@ -784,7 +937,7 @@ def get_comment_replies(post_id, comment_id):
     if not post:
         return jsonify({'error': '존재하지 않는 게시글입니다'}), 404
         
-    if post.is_deleted:
+    if post.deleted_at:
         return jsonify({'error': '삭제된 게시글입니다'}), 404
     
     # 댓글 존재 여부 확인
@@ -820,6 +973,10 @@ def get_comment_replies(post_id, comment_id):
         'per_page': per_page
     }), 200
 
+@app.route('/api/users/me', methods=['GET'])
+@token_required
+def get_current_user(current_user):
+    return jsonify(get_user_data(current_user)), 200
 
 
 if __name__ == '__main__':
