@@ -71,7 +71,7 @@ class User(db.Model, TimestampMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    name = db.Column(db.String(50), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)  # 실명
     country_id = db.Column(db.Integer, db.ForeignKey('countries.id'), nullable=False)
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
     college_id = db.Column(db.Integer, db.ForeignKey('colleges.id'), nullable=False)
@@ -89,11 +89,11 @@ class User(db.Model, TimestampMixin):
         return self.deleted_at is not None
     
     @property
-    def display_name(self):
-        return "삭제된 유저" if self.is_deleted else self.name
+    def display_nickname(self):
+        return "삭제된 유저" if self.is_deleted else self.nickname
 
     def __repr__(self):
-        return f'<User {self.display_name}>'
+        return f'<User {self.display_nickname}>'
 
 class Post(db.Model, TimestampMixin):
     __tablename__ = 'posts'
@@ -106,8 +106,8 @@ class Post(db.Model, TimestampMixin):
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
     college_id = db.Column(db.Integer, db.ForeignKey('colleges.id'), nullable=False)
     department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False)
+    nickname = db.Column(db.String(100), nullable=False)  # 랜덤 닉네임
     deleted_at = db.Column(db.DateTime, nullable=True)
-    nickname = db.Column(db.String(100), nullable=False)
 
     # Relationships
     post_comments = db.relationship('PostComment', backref='post', lazy=True)
@@ -130,7 +130,7 @@ class PostComment(db.Model, TimestampMixin):
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('post_comments.id'), nullable=True)
     deleted_at = db.Column(db.DateTime, nullable=True)
-    nickname = db.Column(db.String(100), nullable=False)
+    anonymous_nickname = db.Column(db.String(100), nullable=False)
 
     # Relationships
     replies = db.relationship('PostComment', backref=db.backref('parent', remote_side=[id]), lazy=True)
@@ -168,11 +168,12 @@ class PostView(db.Model, TimestampMixin):
     def __repr__(self):
         return f'<PostView post_id={self.post_id}, ip={self.ip_address}>'
 
-class Nickname(db.Model):
+class Nickname(db.Model, TimestampMixin):
     __tablename__ = 'nicknames'
     
     id = db.Column(db.Integer, primary_key=True)
-    nickname = db.Column(db.String(50), unique=True, nullable=False)
+    nickname = db.Column(db.String(100), nullable=False, unique=True)
+
 
     def __repr__(self):
         return f'<Nickname {self.nickname}>'

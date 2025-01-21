@@ -54,12 +54,43 @@ def get_department_data(department):
     }
 
 def get_post_data(post, view_count, comment_count, like_count, dislike_count):
+    # 삭제된 게시글인 경우
+    if post.deleted_at:
+        return {
+            'id': post.id,
+            'title': None,
+            'content': None,
+            'category': post.category,
+            'author': get_user_data(post.author),
+            'nickname': None,
+            'school': {
+                'id': post.school.id,
+                'name': post.school.name
+            },
+            'college': {
+                'id': post.college.id,
+                'name': post.college.name
+            },
+            'department': {
+                'id': post.department.id,
+                'name': post.department.name
+            },
+            'view_count': view_count,
+            'comment_count': comment_count,
+            'like_count': like_count,
+            'dislike_count': dislike_count,
+            'created_at': post.created_at.isoformat(),
+            'updated_at': post.updated_at.isoformat(),
+            'deleted_at': post.deleted_at.isoformat() if post.deleted_at else None
+        }
+    
     return {
         'id': post.id,
         'title': post.title,
         'content': post.content,
         'category': post.category,
         'author': get_user_data(post.author),
+        'nickname': post.nickname,
         'school': {
             'id': post.school.id,
             'name': post.school.name
@@ -77,43 +108,53 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
         'like_count': like_count,
         'dislike_count': dislike_count,
         'created_at': post.created_at.isoformat(),
-        'updated_at': post.updated_at.isoformat()
+        'updated_at': post.updated_at.isoformat(),
+        'deleted_at': None
     }
 
 
 def get_comment_data(comment, reply_count):
+    # 삭제된 댓글인 경우
+    if comment.deleted_at:
+        return {
+            'id': comment.id,
+            'content': None,
+            'nickname': None,
+            'parent_id': comment.parent_id,
+            'post_id': comment.post_id,
+            'reply_count': reply_count,
+            'created_at': comment.created_at.isoformat(),
+            'updated_at': comment.updated_at.isoformat(),
+            'deleted_at': comment.deleted_at.isoformat() 
+        }
+    
     return {
         'id': comment.id,
-        'content': comment.display_content,
-        'author': {
-            'id': comment.author.id,
-            'nickname': comment.author.display_nickname
-        },
+        'content': comment.content,
+        'author': get_user_data(comment.author),
+        'nickname': comment.nickname,
+        'parent_id': comment.parent_id,
+        'post_id': comment.post_id,
         'reply_count': reply_count,
-        'is_deleted': comment.is_deleted,
         'created_at': comment.created_at.isoformat(),
-        'updated_at': comment.updated_at.isoformat()
+        'updated_at': comment.updated_at.isoformat(),
+        'deleted_at': None
     }
 
 def get_user_data(user):
     if user.is_deleted:
         return {
             'id': user.id,
-            'email': 'deleted@mail.com',
-            'name': 'deleted',
             'country': None,
             'school': None,
             'college': None,
             'department': None,
-            'created_at': None,
-            'updated_at': None,
+
             'deleted_at': user.deleted_at.isoformat() if user.deleted_at else None
         }
     
     return {
         'id': user.id,
-        'email': user.email,
-        'name': user.name,
         'country': {
             'id': user.country.id,
             'name': user.country.name,
@@ -131,8 +172,6 @@ def get_user_data(user):
             'id': user.department.id,
             'name': user.department.name
         },
-        'created_at': user.created_at.isoformat(),
-        'updated_at': user.updated_at.isoformat(),
         'deleted_at': user.deleted_at.isoformat() if user.deleted_at else None
     }
 
@@ -365,7 +404,7 @@ def register():
     data = request.get_json()
     
     # 필수 필드 확인
-    required_fields = ['email', 'password', 'nickname', 'country_id', 'school_id', 'college_id', 'department_id']
+    required_fields = ['email', 'password', 'name', 'country_id', 'school_id', 'college_id', 'department_id']
     for field in required_fields:
         if field not in data:
             return jsonify({'error': f'{field}는 필수 항목입니다'}), 400
@@ -373,10 +412,6 @@ def register():
     # 이메일 중복 확인
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': '이미 존재하는 이메일입니다'}), 400
-        
-    # 닉네임 중복 확인
-    if User.query.filter_by(nickname=data['nickname']).first():
-        return jsonify({'error': '이미 존재하는 닉네임입니다'}), 400
     
     # 국가 존재 여부 확인
     country = Country.query.get(data['country_id'])
@@ -410,7 +445,7 @@ def register():
     new_user = User(
         email=data['email'],
         password=generate_password_hash(data['password']),
-        nickname=data['nickname'],
+        name=data['name'],
         country_id=data['country_id'],
         school_id=data['school_id'],
         college_id=data['college_id'],
@@ -426,7 +461,7 @@ def register():
             {
                 'user_id': new_user.id,
                 'email': new_user.email,
-                'nickname': new_user.nickname,
+                'name': new_user.name,
                 'exp': datetime.utcnow() + timedelta(days=30)
             },
             app.config['SECRET_KEY'],
@@ -973,10 +1008,37 @@ def get_comment_replies(post_id, comment_id):
         'per_page': per_page
     }), 200
 
+def get_current_user_data(user):
+  
+    return {
+        'id': user.id,
+        'email': user.email,
+        'name': user.name,
+        'country': {
+            'id': user.country.id,
+            'name': user.country.name,
+            'code': user.country.code
+        },
+        'school': {
+            'id': user.school.id,
+            'name': user.school.name
+        },
+        'college': {
+            'id': user.college.id,
+            'name': user.college.name
+        },
+        'department': {
+            'id': user.department.id,
+            'name': user.department.name
+        },
+        'created_at': user.created_at.isoformat(),
+        'updated_at': user.updated_at.isoformat()
+    }
+
 @app.route('/api/users/me', methods=['GET'])
 @token_required
 def get_current_user(current_user):
-    return jsonify(get_user_data(current_user)), 200
+    return jsonify(get_current_user_data(current_user)), 200
 
 
 if __name__ == '__main__':
