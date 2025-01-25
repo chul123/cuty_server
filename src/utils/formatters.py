@@ -66,7 +66,7 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
         'title': post.title,
         'content': post.content,
         'category': post.category,
-        'user': get_current_user_data(post.author) if post.author else None,
+        'user': get_current_user_data(post.user) if post.user else None,
         'nickname': post.nickname,
         'school': {
             'id': post.school.id,
@@ -108,7 +108,7 @@ def get_comment_data(comment, reply_count):
     return {
         'id': comment.id,
         'content': comment.content,
-        'author': get_user_data(comment.author),
+        'user': get_user_data(comment.user),
         'nickname': comment.nickname,
         'parent_id': comment.parent_id,
         'post_id': comment.post_id,

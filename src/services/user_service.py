@@ -1,9 +1,11 @@
 from flask import current_app
 import jwt
-from src.models import User, Post, PostComment
+from src.models import User, Post, PostComment, PostView, PostLike
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from src.models import db
+from sqlalchemy import func, case, distinct
+from src.utils.formatters import get_post_data, get_comment_data
 
 class UserService:
     @staticmethod
@@ -42,21 +44,22 @@ class UserService:
 
     @staticmethod
     def validate_password(password):
-        """비밀번호 유효성을 검사합니다."""
-        if len(password) < 8:
-            raise ValueError('비밀번호는 최소 8자 이상이어야 합니다')
+        # """비밀번호 유효성을 검사합니다."""
+        # if len(password) < 8:
+        #     raise ValueError('비밀번호는 최소 8자 이상이어야 합니다')
         
-        if not any(c.isupper() for c in password):
-            raise ValueError('비밀번호는 최소 1개의 대문자를 포함해야 합니다')
+        # if not any(c.isupper() for c in password):
+        #     raise ValueError('비밀번호는 최소 1개의 대문자를 포함해야 합니다')
             
-        if not any(c.islower() for c in password):
-            raise ValueError('비밀번호는 최소 1개의 소문자를 포함해야 합니다')
+        # if not any(c.islower() for c in password):
+        #     raise ValueError('비밀번호는 최소 1개의 소문자를 포함해야 합니다')
             
-        if not any(c.isdigit() for c in password):
-            raise ValueError('비밀번호는 최소 1개의 숫자를 포함해야 합니다')
+        # if not any(c.isdigit() for c in password):
+        #     raise ValueError('비밀번호는 최소 1개의 숫자를 포함해야 합니다')
             
-        if not any(c in '!@#$%^&*()' for c in password):
-            raise ValueError('비밀번호는 최소 1개의 특수문자(!@#$%^&*())를 포함해야 합니다')
+        # if not any(c in '!@#$%^&*()' for c in password):
+        #     raise ValueError('비밀번호는 최소 1개의 특수문자(!@#$%^&*())를 포함해야 합니다')
+        pass
 
     @staticmethod
     def change_password(user_id, current_password, new_password):
@@ -102,8 +105,14 @@ class UserService:
         if user.is_deleted:
             raise ValueError('이미 삭제된 사용자입니다')
             
-        user.deleted_at = datetime.utcnow()
-        db.session.commit()
+        try:
+            # 이메일 앞에 "deleted:" 접두어 추가
+            user.email = f"deleted:{user.email}"
+            user.deleted_at = datetime.utcnow()
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            raise e
 
     @staticmethod
     def get_user_posts(user_id, page, per_page):
@@ -138,3 +147,88 @@ class UserService:
             .paginate(page=page, per_page=per_page, error_out=False)
             
         return comments
+
+    @staticmethod
+    def get_my_posts(user_id, page, per_page):
+        """사용자가 작성한 게시글 목록을 조회합니다."""
+        # 사용자 존재 여부 확인
+        user = User.query.get(user_id)
+        if not user:
+            raise ValueError('존재하지 않는 사용자입니다')
+        
+        if user.is_deleted:
+            raise ValueError('삭제된 사용자입니다')
+        
+        # 게시글 쿼리 생성
+        posts_query = db.session.query(
+            Post,
+            func.count(distinct(PostView.id)).label('view_count'),
+            func.count(distinct(case(
+                (PostComment.parent_id == None, PostComment.id)
+            ))).label('comment_count'),
+            func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
+            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
+        ).outerjoin(PostView, Post.id == PostView.post_id)\
+        .outerjoin(PostComment, Post.id == PostComment.post_id)\
+        .outerjoin(PostLike, Post.id == PostLike.post_id)\
+        .filter(Post.user_id == user_id)\
+        .filter(Post.deleted_at == None)\
+        .group_by(Post.id)\
+        .order_by(Post.created_at.desc())
+        
+        # 페이지네이션 적용
+        pagination = posts_query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        # 결과 포맷팅
+        posts = [
+            get_post_data(post, view_count, comment_count, like_count, dislike_count)
+            for post, view_count, comment_count, like_count, dislike_count in pagination.items
+        ]
+        
+        return {
+            'posts': posts,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page,
+            'per_page': per_page
+        }
+
+    @staticmethod
+    def get_my_comments(user_id, page, per_page):
+        """사용자가 작성한 댓글 목록을 조회합니다."""
+        user = User.query.get(user_id)
+        
+        if not user:
+            raise ValueError('존재하지 않는 사용자입니다')
+            
+        if user.is_deleted:
+            raise ValueError('삭제된 사용자입니다')
+            
+        # 댓글 쿼리 생성
+        comments_query = db.session.query(
+            PostComment,
+            func.count(distinct(PostComment.replies)).label('reply_count')
+        ).select_from(PostComment)\
+        .filter(
+            PostComment.user_id == user_id,
+            PostComment.deleted_at == None  # 삭제되지 않은 댓글만 조회
+        ).group_by(
+            PostComment.id
+        ).order_by(PostComment.created_at.desc())
+        
+        # 페이지네이션 적용
+        pagination = comments_query.paginate(page=page, per_page=per_page, error_out=False)
+        
+        # 결과 포맷팅
+        comments = [
+            get_comment_data(comment, reply_count)
+            for comment, reply_count in pagination.items
+        ]
+        
+        return {
+            'comments': comments,
+            'total': pagination.total,
+            'pages': pagination.pages,
+            'current_page': page,
+            'per_page': per_page
+        }

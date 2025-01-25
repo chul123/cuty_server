@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from src.services.comment_service import CommentService
 from src.utils.auth import token_required
+from flask import current_app
 
 comment_bp = Blueprint('comment', __name__)
 
@@ -76,11 +77,14 @@ def get_comment_replies(post_id, comment_id):
     per_page = request.args.get('per_page', 10, type=int)
     
     try:
+        current_app.logger.debug(f"Fetching replies for post_id: {post_id}, comment_id: {comment_id}")
         result = CommentService.get_replies(post_id, comment_id, page, per_page)
         return jsonify(result), 200
     except ValueError as e:
+        current_app.logger.error(f"ValueError in get_comment_replies: {str(e)}")
         return jsonify({'error': str(e)}), 404 if '존재하지 않는' in str(e) else 400
     except Exception as e:
+        current_app.logger.error(f"Unexpected error in get_comment_replies: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @comment_bp.route('/<int:post_id>/comments/<int:comment_id>', methods=['GET'])

@@ -12,7 +12,9 @@ class PostComment(db.Model, TimestampMixin):
     nickname = db.Column(db.String(100), nullable=False)
 
     # Relationships
-    replies = db.relationship('PostComment', backref=db.backref('parent', remote_side=[id]), lazy=True)
+    replies = db.relationship('PostComment', 
+                            backref=db.backref('parent', remote_side=[id]),
+                            lazy='dynamic')
 
     @property
     def is_deleted(self):

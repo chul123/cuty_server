@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import current_app
-from sqlalchemy import func, distinct
+import logging
+from sqlalchemy import func, distinct, and_
 from src.models import db, Post, PostComment, User
 from src.services.nickname_service import NicknameService
 from src.utils.formatters import get_comment_data
@@ -9,41 +10,58 @@ class CommentService:
     
     @staticmethod
     def get_comments(post_id, page, per_page):
-        # 게시글 존재 여부 확인
-        post = Post.query.get(post_id)
-        if not post:
-            raise ValueError('존재하지 않는 게시글입니다')
+        try:
+            # 게시글 존재 여부 확인
+            post = Post.query.get(post_id)
+            if not post:
+                raise ValueError('존재하지 않는 게시글입니다')
+                
+            if post.deleted_at:
+                raise ValueError('삭제된 게시글입니다')
             
-        if post.deleted_at:
-            raise ValueError('삭제된 게시글입니다')
-        
-        # 최상위 댓글과 대댓글 수 쿼리
-        comments_query = db.session.query(
-            PostComment,
-            func.count(distinct(PostComment.replies)).label('reply_count')
-        ).select_from(PostComment).filter(
-            PostComment.post_id == post_id,
-            PostComment.parent_id == None  # 최상위 댓글만 가져오기
-        ).group_by(
-            PostComment.id
-        ).order_by(PostComment.created_at.desc())
-        
-        # 페이지네이션 적용
-        pagination = comments_query.paginate(page=page, per_page=per_page, error_out=False)
-        
-        # 결과 포맷팅
-        comments = [
-            get_comment_data(comment, reply_count)
-            for comment, reply_count in pagination.items
-        ]
-        
-        return {
-            'comments': comments,
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'current_page': page,
-            'per_page': per_page
-        }
+            # 대댓글 수를 계산하는 서브쿼리
+            reply_count_subquery = db.session.query(
+                PostComment.parent_id,
+                func.count('*').label('reply_count')
+            ).filter(
+                PostComment.parent_id.isnot(None)
+            ).group_by(PostComment.parent_id).subquery()
+            
+            # 최상위 댓글 쿼리
+            comments_query = db.session.query(
+                PostComment,
+                func.coalesce(reply_count_subquery.c.reply_count, 0).label('reply_count')
+            ).outerjoin(
+                reply_count_subquery,
+                PostComment.id == reply_count_subquery.c.parent_id
+            ).filter(
+                PostComment.post_id == post_id,
+                PostComment.parent_id.is_(None)  # 최상위 댓글만
+            ).order_by(PostComment.created_at.desc())
+            
+            # SQL 쿼리 로깅
+            current_app.logger.debug(f"Generated SQL Query: {str(comments_query)}")
+            
+            # 페이지네이션 적용
+            pagination = comments_query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # 결과 포맷팅
+            comments = [
+                get_comment_data(comment, reply_count)
+                for comment, reply_count in pagination.items
+            ]
+            
+            return {
+                'comments': comments,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'current_page': page,
+                'per_page': per_page
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"Error in get_comments: {str(e)}")
+            raise
 
     @staticmethod
     def get_comment(post_id, comment_id):
@@ -67,48 +85,58 @@ class CommentService:
     
     @staticmethod
     def get_replies(post_id, comment_id, page, per_page):
-        # 게시글 존재 여부 확인
-        post = Post.query.get(post_id)
-        if not post:
-            raise ValueError('존재하지 않는 게시글입니다')
+        try:
+            # 디버그 로깅 추가
+            current_app.logger.debug(f"Starting get_replies for post_id: {post_id}, comment_id: {comment_id}")
             
-        if post.deleted_at:
-            raise ValueError('삭제된 게시글입니다')
-        
-        # 댓글 존재 여부 확인
-        comment = PostComment.query.get(comment_id)
-        if not comment:
-            raise ValueError('존재하지 않는 댓글입니다')
+            # 게시글 존재 여부 확인
+            post = Post.query.get(post_id)
+            if not post:
+                raise ValueError('존재하지 않는 게시글입니다')
+                
+            if post.deleted_at:
+                raise ValueError('삭제된 게시글입니다')
             
-        if comment.post_id != post_id:
-            raise ValueError('해당 게시글의 댓글이 아닙니다')
+            # 댓글 존재 여부 확인
+            comment = PostComment.query.get(comment_id)
+            if not comment:
+                raise ValueError('존재하지 않는 댓글입니다')
+                
+            if comment.post_id != post_id:
+                raise ValueError('해당 게시글의 댓글이 아닙니다')
+                
+            if comment.parent_id is not None:
+                raise ValueError('대댓글입니다')
             
-        if comment.parent_id is not None:
-            raise ValueError('대댓글 입니다')
-        
-        # 대댓글 쿼리
-        replies_query = PostComment.query.filter(
-            PostComment.parent_id == comment_id
-        ).order_by(PostComment.created_at.desc())
-        
-        # 페이지네이션 적용
-        pagination = replies_query.paginate(page=page, per_page=per_page, error_out=False)
-        
-        # 결과 포맷팅
-        replies = [
-            get_comment_data(reply, 0)  # 대댓글에는 reply_count가 항상 0
-            for reply in pagination.items
-        ]
+            # SQL 쿼리 로깅
+            current_app.logger.debug("Executing replies query")
+            
+            # 대댓글 쿼리
+            replies_query = PostComment.query.filter(
+                PostComment.parent_id == comment_id
+            ).order_by(PostComment.created_at.desc())
+            
+            # 페이지네이션 적용
+            pagination = replies_query.paginate(page=page, per_page=per_page, error_out=False)
+            
+            # 결과 포맷팅
+            replies = [
+                get_comment_data(reply, 0)  # 대댓글에는 reply_count가 항상 0
+                for reply in pagination.items
+            ]
 
-        
-        
-        return {
-            'replies': replies,
-            'total': pagination.total,
-            'pages': pagination.pages,
-            'current_page': page,
-            'per_page': per_page
-        }
+            return {
+                'replies': replies,
+                'total': pagination.total,
+                'pages': pagination.pages,
+                'current_page': page,
+                'per_page': per_page
+            }
+            
+        except Exception as e:
+            # 예외 로깅 추가
+            current_app.logger.error(f"Error in get_replies: {str(e)}")
+            raise
 
     @staticmethod
     def create_comment(current_user, post_id, content, parent_id=None):

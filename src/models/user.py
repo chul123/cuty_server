@@ -16,8 +16,8 @@ class User(db.Model, TimestampMixin):
     deleted_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
-    posts = db.relationship('Post', backref='author', lazy=True)
-    post_comments = db.relationship('PostComment', backref='author', lazy=True)
+    posts = db.relationship('Post', backref='user', lazy=True)
+    post_comments = db.relationship('PostComment', backref='user', lazy=True)
     post_likes = db.relationship('PostLike', backref='user', lazy=True)
     post_views = db.relationship('PostView', backref='user', lazy=True)
 

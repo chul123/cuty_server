@@ -68,10 +68,10 @@ class NicknameService:
         return None
 
     @staticmethod
-    def get_comment_nickname(user_id, post_id, post_author_id):
+    def get_comment_nickname(user_id, post_id, post_user_id):
         """댓글 작성자의 닉네임을 결정합니다."""
         # 글쓴이인 경우 게시글의 닉네임을 사용
-        if user_id == post_author_id:
+        if user_id == post_user_id:
             post = Post.query.get(post_id)
             return post.nickname if post else None
             

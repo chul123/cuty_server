@@ -61,6 +61,10 @@ class AuthService:
         if not user or not check_password_hash(user.password, password):
             raise ValueError('이메일 또는 비밀번호가 잘못되었습니다')
             
+        # 삭제된 계정 확인
+        if user.is_deleted:
+            raise ValueError('삭제된 계정입니다')
+            
         return user
 
     @staticmethod
