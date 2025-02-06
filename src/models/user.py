@@ -1,5 +1,5 @@
-from enums import UserType
 from .base import db, TimestampMixin
+from .enums import UserType
 
 class User(db.Model, TimestampMixin):
     __tablename__ = 'users'

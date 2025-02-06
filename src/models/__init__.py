@@ -6,6 +6,7 @@ from .comment import PostComment
 from .like import PostLike
 from .view import PostView
 from .nickname import Nickname
+from .enums import UserType
 
 __all__ = [
     'db',
@@ -18,5 +19,6 @@ __all__ = [
     'PostComment',
     'PostLike',
     'PostView',
-    'Nickname'
+    'Nickname',
+    'UserType'
 ]
