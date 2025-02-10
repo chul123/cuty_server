@@ -4,6 +4,7 @@ from src.routes.v1.post_routes import post_bp
 from src.routes.v1.comment_routes import comment_bp
 from src.routes.v1.school_routes import school_bp
 from src.routes.v1.user_routes import user_bp
+from src.routes.v1.like_routes import like_bp
 
 def init_routes(app):
     """애플리케이션의 모든 라우트를 등록합니다."""
@@ -24,3 +25,6 @@ def init_routes(app):
     
     # 사용자 관련 라우트
     app.register_blueprint(user_bp, url_prefix='/api/v1/users')
+    
+    # 좋아요 관련 라우트
+    app.register_blueprint(like_bp, url_prefix='/api/v1/posts')
