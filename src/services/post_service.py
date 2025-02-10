@@ -13,7 +13,7 @@ from src.services.nickname_service import NicknameService
 
 class PostService:
     @staticmethod
-    def get_posts(page, per_page, current_user_school_id=None, **filters):
+    def get_posts(page, per_page, current_user_school_id=None, current_user_id=None, **filters):
         """게시글 목록을 조회합니다."""
         school_id = filters.get('school_id')
         college_id = filters.get('college_id')
@@ -35,7 +35,13 @@ class PostService:
                 (PostComment.parent_id == None, PostComment.id)
             ))).label('comment_count'),
             func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
-            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
+            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'like', PostLike.user_id == current_user_id), PostLike.id)
+            ))).label('user_like_status'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'dislike', PostLike.user_id == current_user_id), PostLike.id)
+            ))).label('user_dislike_status')
         ).outerjoin(PostView, Post.id == PostView.post_id)\
         .outerjoin(PostComment, Post.id == PostComment.post_id)\
         .outerjoin(PostLike, Post.id == PostLike.post_id)\
@@ -70,6 +76,21 @@ class PostService:
         # 페이지네이션 적용
         pagination = posts_query.paginate(page=page, per_page=per_page, error_out=False)
 
+        # 결과 포맷팅
+        posts = [
+            get_post_data(
+                post, 
+                view_count, 
+                comment_count, 
+                like_count, 
+                dislike_count,
+                bool(user_like_status),
+                bool(user_dislike_status)
+            )
+            for post, view_count, comment_count, like_count, dislike_count, user_like_status, user_dislike_status 
+            in pagination.items
+        ]
+
         # 현재 적용된 필터의 학교/단과대/학과 정보 가져오기
         current_school = None
         current_college = None
@@ -85,12 +106,6 @@ class PostService:
 
         if department_id and current_college:
             current_department = Department.query.filter_by(id=department_id, college_id=current_college.id).first()
-
-        # 결과 포맷팅
-        posts = [
-            get_post_data(post, view_count, comment_count, like_count, dislike_count)
-            for post, view_count, comment_count, like_count, dislike_count in pagination.items
-        ]
 
         return {
             'posts': posts,
@@ -117,7 +132,13 @@ class PostService:
                 (PostComment.parent_id == None, PostComment.id)
             ))).label('comment_count'),
             func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
-            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
+            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'like', PostLike.user_id == user_id), PostLike.id)
+            ))).label('user_like_status'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'dislike', PostLike.user_id == user_id), PostLike.id)
+            ))).label('user_dislike_status')
         ).outerjoin(PostView, Post.id == PostView.post_id)\
         .outerjoin(PostComment, Post.id == PostComment.post_id)\
         .outerjoin(PostLike, Post.id == PostLike.post_id)\
@@ -128,7 +149,7 @@ class PostService:
         if not post_query:
             raise ValueError('존재하지 않는 게시글입니다')
 
-        post, view_count, comment_count, like_count, dislike_count = post_query
+        post, view_count, comment_count, like_count, dislike_count, user_like_status, user_dislike_status = post_query
 
         if post.deleted_at:
             raise ValueError('삭제된 게시글입니다')
@@ -152,7 +173,15 @@ class PostService:
             db.session.commit()
             view_count += 1
 
-        return get_post_data(post, view_count, comment_count, like_count, dislike_count)
+        return get_post_data(
+            post, 
+            view_count, 
+            comment_count, 
+            like_count, 
+            dislike_count,
+            bool(user_like_status),
+            bool(user_dislike_status)
+        )
 
     @staticmethod
     def create_post(user, title, content, category):
@@ -176,7 +205,7 @@ class PostService:
         try:
             db.session.add(new_post)
             db.session.commit()
-            return get_post_data(new_post, 0, 0, 0, 0)
+            return get_post_data(new_post, 0, 0, 0, 0, False, False)
         except Exception as e:
             db.session.rollback()
             raise e
@@ -211,7 +240,13 @@ class PostService:
                     (PostComment.parent_id == None, PostComment.id)
                 ))).label('comment_count'),
                 func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
-                func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
+                func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count'),
+                func.count(distinct(case(
+                    (and_(PostLike.type == 'like', PostLike.user_id == user.id), PostLike.id)
+                ))).label('user_like_status'),
+                func.count(distinct(case(
+                    (and_(PostLike.type == 'dislike', PostLike.user_id == user.id), PostLike.id)
+                ))).label('user_dislike_status')
             ).outerjoin(PostView, Post.id == PostView.post_id)\
             .outerjoin(PostComment, Post.id == PostComment.post_id)\
             .outerjoin(PostLike, Post.id == PostLike.post_id)\
@@ -219,8 +254,16 @@ class PostService:
             .group_by(Post.id)\
             .first()
 
-            post, view_count, comment_count, like_count, dislike_count = post_data
-            return get_post_data(post, view_count, comment_count, like_count, dislike_count)
+            post, view_count, comment_count, like_count, dislike_count, user_like_status, user_dislike_status = post_data
+            return get_post_data(
+                post, 
+                view_count, 
+                comment_count, 
+                like_count, 
+                dislike_count,
+                bool(user_like_status),
+                bool(user_dislike_status)
+            )
 
         except Exception as e:
             db.session.rollback()

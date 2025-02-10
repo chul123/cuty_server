@@ -30,7 +30,8 @@ def get_department_data(department):
 
     }
 
-def get_post_data(post, view_count, comment_count, like_count, dislike_count):
+def get_post_data(post, view_count, comment_count, like_count, dislike_count, user_like_status=None, user_dislike_status=None):
+    """게시글 데이터를 포맷팅합니다."""
     # 삭제된 게시글인 경우
     if post.deleted_at:
         return {
@@ -38,7 +39,7 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
             'title': None,
             'content': None,
             'category': post.category,
-            'user':  None,
+            'user': None,
             'nickname': None,
             'school': {
                 'id': post.school.id,
@@ -56,6 +57,8 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
             'comment_count': comment_count,
             'like_count': like_count,
             'dislike_count': dislike_count,
+            'user_like_status': user_like_status,
+            'user_dislike_status': user_dislike_status,
             'created_at': post.created_at.isoformat(),
             'updated_at': post.updated_at.isoformat(),
             'deleted_at': post.deleted_at.isoformat() if post.deleted_at else None
@@ -84,6 +87,8 @@ def get_post_data(post, view_count, comment_count, like_count, dislike_count):
         'comment_count': comment_count,
         'like_count': like_count,
         'dislike_count': dislike_count,
+        'user_like_status': user_like_status,
+        'user_dislike_status': user_dislike_status,
         'created_at': post.created_at.isoformat(),
         'updated_at': post.updated_at.isoformat(),
         'deleted_at': None

@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from src.services.user_service import UserService
 from src.utils.auth import token_required
-from src.utils.formatters import get_post_data, get_comment_data, get_current_user_data
+from src.utils.formatters import get_current_user_data
 
 user_bp = Blueprint('user', __name__)
 

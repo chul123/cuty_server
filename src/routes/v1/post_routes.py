@@ -21,11 +21,12 @@ def get_posts():
         'department_id': request.args.get('department_id', type=int)
     }
     
-    # 현재 사용자의 학교 정보 가져오기
+    # 현재 사용자의 학교 정보와 ID 가져오기
     current_user_school_id = UserService.get_user_school_id(request.headers)
+    current_user_id = UserService.get_user_id(request.headers)
     
     try:
-        result = PostService.get_posts(page, per_page, current_user_school_id, **filters)
+        result = PostService.get_posts(page, per_page, current_user_school_id, current_user_id, **filters)
         return jsonify(result), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

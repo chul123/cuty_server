@@ -4,7 +4,7 @@ from src.models import User, Post, PostComment, PostView, PostLike
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from src.models import db
-from sqlalchemy import func, case, distinct
+from sqlalchemy import func, case, distinct, and_
 from src.utils.formatters import get_post_data, get_comment_data
 
 class UserService:
@@ -167,7 +167,13 @@ class UserService:
                 (PostComment.parent_id == None, PostComment.id)
             ))).label('comment_count'),
             func.count(distinct(case((PostLike.type == 'like', PostLike.id)))).label('like_count'),
-            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count')
+            func.count(distinct(case((PostLike.type == 'dislike', PostLike.id)))).label('dislike_count'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'like', PostLike.user_id == user_id), PostLike.id)
+            ))).label('user_like_status'),
+            func.count(distinct(case(
+                (and_(PostLike.type == 'dislike', PostLike.user_id == user_id), PostLike.id)
+            ))).label('user_dislike_status')
         ).outerjoin(PostView, Post.id == PostView.post_id)\
         .outerjoin(PostComment, Post.id == PostComment.post_id)\
         .outerjoin(PostLike, Post.id == PostLike.post_id)\
@@ -181,8 +187,17 @@ class UserService:
         
         # 결과 포맷팅
         posts = [
-            get_post_data(post, view_count, comment_count, like_count, dislike_count)
-            for post, view_count, comment_count, like_count, dislike_count in pagination.items
+            get_post_data(
+                post, 
+                view_count, 
+                comment_count, 
+                like_count, 
+                dislike_count,
+                bool(user_like_status),
+                bool(user_dislike_status)
+            )
+            for post, view_count, comment_count, like_count, dislike_count, user_like_status, user_dislike_status 
+            in pagination.items
         ]
         
         return {
